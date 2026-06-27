@@ -428,6 +428,65 @@ $config = [
             .hanoi-board { min-height: 260px; }
             .peg::before { height: 200px; }
         }
+
+        /* ---------- Demostración animada ("Cómo resolverlo") ---------- */
+        .demo-board {
+            display: flex;
+            justify-content: space-around;
+            align-items: flex-end;
+            gap: clamp(8px, 3vw, 28px);
+            padding: 16px clamp(8px, 3vw, 24px) 0;
+            min-height: 220px;
+            background: linear-gradient(180deg, rgba(51,49,46,.4), rgba(51,49,46,.12));
+            border: 1px solid var(--border);
+            border-radius: 12px;
+            overflow: hidden;
+        }
+        .demo-board .peg {
+            min-height: 190px;
+            max-width: 220px;
+            cursor: default;
+        }
+        .demo-board .peg:hover { transform: none; }
+        .demo-board .peg::before { height: 150px; }
+        .demo-board .disk { cursor: default; height: 26px; }
+        .disk.demo-moving {
+            position: relative;
+            z-index: 60;
+            box-shadow: 0 0 18px rgba(239,193,139,.7), 0 10px 18px rgba(0,0,0,.55);
+        }
+
+        .demo-caption {
+            min-height: 3.2rem;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            text-align: center;
+            font-size: .95rem;
+            line-height: 1.45;
+            color: var(--text);
+            background: rgba(187,148,92,.08);
+            border: 1px solid rgba(187,148,92,.3);
+            border-radius: 10px;
+            padding: .65rem 1rem;
+        }
+        .demo-caption .step-tag {
+            color: var(--c-gold);
+            font-weight: 700;
+            margin-right: .35rem;
+        }
+        .demo-progress {
+            height: 4px;
+            border-radius: 4px;
+            background: rgba(255,255,255,.08);
+            overflow: hidden;
+        }
+        .demo-progress-bar {
+            height: 100%;
+            width: 0%;
+            background: linear-gradient(90deg, var(--c-bronze), var(--c-gold));
+            transition: width .4s ease;
+        }
     </style>
 </head>
 <body>
@@ -449,6 +508,9 @@ $config = [
             </button>
             <button class="btn btn-info-exec px-3" data-bs-toggle="modal" data-bs-target="#instruccionesModal">
                 Instrucciones
+            </button>
+            <button class="btn btn-info-exec px-3" data-bs-toggle="modal" data-bs-target="#comoResolverModal">
+                Cómo resolverlo
             </button>
         </div>
 
@@ -677,6 +739,37 @@ $config = [
             </div>
             <div class="modal-footer">
                 <button class="btn btn-executive px-4" data-bs-dismiss="modal">Entendido</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- ============ MODAL: Cómo resolverlo (demostración animada) ============ -->
+<div class="modal fade" id="comoResolverModal" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog modal-lg modal-dialog-centered">
+        <div class="modal-content hanoi-modal">
+            <div class="modal-header">
+                <h5 class="modal-title">Cómo resolverlo · Demostración guiada</h5>
+                <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal" aria-label="Cerrar"></button>
+            </div>
+            <div class="modal-body p-4">
+                <p class="text-muted-exec small text-center mb-3">
+                    Ejemplo en vivo con 3 discos. Observa cómo se "destapa" el disco grande
+                    apartando los pequeños. Te mostramos los primeros pasos: el desenlace lo completas tú.
+                </p>
+
+                <!-- Tablero de demostración (animado por JS) -->
+                <div class="demo-board" id="demoBoard"></div>
+
+                <!-- Instrucción en tiempo real -->
+                <div class="demo-progress my-3">
+                    <div class="demo-progress-bar" id="demoProgressBar"></div>
+                </div>
+                <div class="demo-caption" id="demoCaption">Preparando la demostración…</div>
+            </div>
+            <div class="modal-footer">
+                <button class="btn btn-outline-soft px-4" id="btnDemoReplay">Repetir demostración</button>
+                <button class="btn btn-executive px-4" data-bs-dismiss="modal">Entendido, a jugar</button>
             </div>
         </div>
     </div>
@@ -1262,6 +1355,164 @@ $config = [
 
     // Limpia pistas de arrastre si se suelta fuera de una torre.
     document.addEventListener("dragend", () => { window.__dragFrom = null; clearDropHints(); });
+
+    /* ===============================================================
+     *  DEMOSTRACIÓN ANIMADA — "Cómo resolverlo"
+     *  Reproduce, con discos reales y movimiento animado (técnica FLIP),
+     *  los primeros pasos de la solución óptima con 3 discos.
+     *  Se detiene ANTES del final para no revelar el desenlace.
+     * ============================================================= */
+
+    const demoBoard   = document.getElementById("demoBoard");
+    const demoCaption = document.getElementById("demoCaption");
+    const demoBar     = document.getElementById("demoProgressBar");
+    const btnDemoReplay = document.getElementById("btnDemoReplay");
+
+    const DEMO_DISKS = 3;
+    let   demoPegs   = [[], [], []];
+    let   demoToken  = 0;          // Token de cancelación (al cerrar / repetir).
+
+    // Secuencia didáctica: 5 de los 7 movimientos óptimos (no se muestra el final).
+    const DEMO_MOVES = [
+        { from: 0, to: 2, text: "Mueve el disco más pequeño de Origen a Destino." },
+        { from: 0, to: 1, text: "Aparta el disco mediano de Origen a Auxiliar." },
+        { from: 2, to: 1, text: "Apila el disco pequeño sobre el mediano, en Auxiliar." },
+        { from: 0, to: 2, text: "Con Origen despejado, lleva el disco grande a Destino." },
+        { from: 1, to: 0, text: "Libera el mediano: regresa el disco pequeño a Origen." },
+    ];
+
+    const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+
+    function demoDiskWidth(size) {
+        const minPct = 42, maxPct = 100;
+        const step = (maxPct - minPct) / Math.max(1, DEMO_DISKS - 1);
+        return minPct + step * (size - 1);
+    }
+
+    function setDemoCaption(step, total, text) {
+        if (step) {
+            demoCaption.innerHTML =
+                `<span class="step-tag">Paso ${step}/${total}</span>${text}`;
+            demoBar.style.width = Math.round((step / (total + 1)) * 100) + "%";
+        } else {
+            demoCaption.textContent = text;
+        }
+    }
+
+    function renderDemo() {
+        demoBoard.innerHTML = "";
+        for (let p = 0; p < 3; p++) {
+            const peg = document.createElement("div");
+            peg.className = "peg";
+            peg.dataset.peg = p;
+
+            const stack = document.createElement("div");
+            stack.className = "peg-stack";
+            stack.dataset.peg = p;
+
+            const base = document.createElement("div");
+            base.className = "peg-base";
+
+            const label = document.createElement("div");
+            label.className = "peg-label";
+            label.textContent = TOWER_LABELS[p];
+
+            demoPegs[p].forEach((size) => {
+                const disk = document.createElement("div");
+                disk.className = "disk disk-c" + ((size - 1) % 8);
+                disk.style.width = demoDiskWidth(size) + "%";
+                disk.textContent = size;
+                stack.appendChild(disk);
+            });
+
+            peg.appendChild(stack);
+            peg.appendChild(base);
+            peg.appendChild(label);
+            demoBoard.appendChild(peg);
+        }
+    }
+
+    // Anima el desplazamiento del disco superior usando la técnica FLIP.
+    function animateDemoMove(from, to) {
+        return new Promise((resolve) => {
+            const stackFrom = demoBoard.querySelector(`.peg-stack[data-peg="${from}"]`);
+            const stackTo   = demoBoard.querySelector(`.peg-stack[data-peg="${to}"]`);
+            const disk = stackFrom ? stackFrom.lastElementChild : null;
+            if (!disk) { resolve(); return; }
+
+            const first = disk.getBoundingClientRect();   // Posición inicial.
+
+            // Actualiza el modelo y mueve el nodo a la torre destino (queda arriba).
+            const size = demoPegs[from].pop();
+            demoPegs[to].push(size);
+            stackTo.appendChild(disk);
+
+            const last = disk.getBoundingClientRect();     // Posición final.
+            const dx = first.left - last.left;
+            const dy = first.top  - last.top;
+
+            // Invierte: lo coloca visualmente en el origen.
+            disk.classList.add("demo-moving");
+            disk.style.transition = "none";
+            disk.style.transform  = `translate(${dx}px, ${dy}px)`;
+            disk.getBoundingClientRect();                   // Fuerza reflujo.
+
+            let settled = false;
+            const finish = () => {
+                if (settled) return;
+                settled = true;
+                disk.style.transition = "";
+                disk.style.transform  = "";
+                disk.classList.remove("demo-moving");
+                disk.removeEventListener("transitionend", finish);
+                resolve();
+            };
+
+            requestAnimationFrame(() => {
+                // Reproduce: anima hacia su posición real.
+                disk.style.transition = "transform .6s cubic-bezier(.45,.05,.25,1)";
+                disk.style.transform  = "translate(0, 0)";
+                disk.addEventListener("transitionend", finish);
+                setTimeout(finish, 700);                    // Red de seguridad.
+            });
+        });
+    }
+
+    async function runDemo() {
+        const myToken = ++demoToken;
+        demoPegs = [[], [], []];
+        for (let s = DEMO_DISKS; s >= 1; s--) demoPegs[0].push(s);
+        renderDemo();
+        demoBar.style.width = "0%";
+
+        setDemoCaption(0, 0, "Estado inicial: los 3 discos en Origen, del mayor (abajo) al menor (arriba).");
+        await sleep(1300);
+        if (myToken !== demoToken) return;
+
+        for (let i = 0; i < DEMO_MOVES.length; i++) {
+            if (myToken !== demoToken) return;             // Cancelado.
+            const mv = DEMO_MOVES[i];
+            setDemoCaption(i + 1, DEMO_MOVES.length, mv.text);
+            await sleep(450);
+            if (myToken !== demoToken) return;
+            await animateDemoMove(mv.from, mv.to);
+            if (myToken !== demoToken) return;
+            await sleep(650);
+        }
+        if (myToken !== demoToken) return;
+
+        demoBar.style.width = "100%";
+        setDemoCaption(0, 0,
+            "Observa el patrón: para mover el disco grande, primero apartas los pequeños. " +
+            "El resto sigue la misma lógica… el desenlace lo completas tú en el juego.");
+    }
+
+    function stopDemo() { demoToken++; }   // Invalida cualquier animación en curso.
+
+    const comoResolverEl = document.getElementById("comoResolverModal");
+    comoResolverEl.addEventListener("shown.bs.modal", runDemo);
+    comoResolverEl.addEventListener("hidden.bs.modal", stopDemo);
+    btnDemoReplay.addEventListener("click", runDemo);
 
     /* ===============================================================
      *  INICIALIZACIÓN
