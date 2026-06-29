@@ -1,0 +1,9 @@
+{
+    "name": "alexxxandrov/hanoi",
+    "description": "Portal de Optimización Cognitiva — Torre de Hanói (PHP + Bootstrap 5, JS vanilla).",
+    "type": "project",
+    "license": "MIT",
+    "require": {
+        "php": ">=8.2"
+    }
+}

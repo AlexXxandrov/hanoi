@@ -455,6 +455,20 @@ $config = [
             z-index: 60;
             box-shadow: 0 0 18px rgba(239,193,139,.7), 0 10px 18px rgba(0,0,0,.55);
         }
+        @keyframes demoShake {
+            0%, 100% { transform: translateX(0); }
+            20% { transform: translateX(-5px); }
+            40% { transform: translateX(5px); }
+            60% { transform: translateX(-4px); }
+            80% { transform: translateX(4px); }
+        }
+        .disk.demo-blocked {
+            animation: demoShake .5s ease;
+            outline: 2px solid rgba(150, 19, 75, .9);
+            box-shadow: 0 0 16px rgba(150, 19, 75, .75);
+            position: relative;
+            z-index: 60;
+        }
 
         .demo-caption {
             min-height: 3.2rem;
@@ -754,8 +768,9 @@ $config = [
             </div>
             <div class="modal-body p-4">
                 <p class="text-muted-exec small text-center mb-3">
-                    Ejemplo en vivo con 3 discos. Observa cómo se "destapa" el disco grande
-                    apartando los pequeños. Te mostramos los primeros pasos: el desenlace lo completas tú.
+                    Ejemplo en vivo con 3 discos para que domines las <strong class="text-light">reglas del movimiento</strong>.
+                    No revelamos la estrategia, los movimientos clave ni el orden final para resolverlo:
+                    ese reto es completamente tuyo.
                 </p>
 
                 <!-- Tablero de demostración (animado por JS) -->
@@ -1372,13 +1387,17 @@ $config = [
     let   demoPegs   = [[], [], []];
     let   demoToken  = 0;          // Token de cancelación (al cerrar / repetir).
 
-    // Secuencia didáctica: 5 de los 7 movimientos óptimos (no se muestra el final).
+    // Secuencia DIDÁCTICA centrada en las reglas (no en la solución).
+    // El disco grande nunca se mueve y la torre jamás se completa: así se
+    // enseña la mecánica sin revelar la estrategia ni el orden ganador.
     const DEMO_MOVES = [
-        { from: 0, to: 2, text: "Mueve el disco más pequeño de Origen a Destino." },
-        { from: 0, to: 1, text: "Aparta el disco mediano de Origen a Auxiliar." },
-        { from: 2, to: 1, text: "Apila el disco pequeño sobre el mediano, en Auxiliar." },
-        { from: 0, to: 2, text: "Con Origen despejado, lleva el disco grande a Destino." },
-        { from: 1, to: 0, text: "Libera el mediano: regresa el disco pequeño a Origen." },
+        { from: 0, to: 1, text: "Solo puedes tomar el disco superior de una torre. El más pequeño pasa a Auxiliar." },
+        { from: 0, to: 2, text: "Se mueve un único disco por turno: el mediano queda libre y va a Destino." },
+        { from: 1, to: 2, text: "Un disco pequeño sí puede apoyarse sobre uno más grande." },
+        { from: 0, to: 2, blocked: true, text: "Movimiento inválido: un disco grande nunca puede ir sobre uno más pequeño." },
+        { from: 2, to: 0, text: "Tomas de nuevo el disco superior y lo reubicas sobre uno mayor." },
+        { from: 2, to: 1, text: "El mediano, ahora libre, se traslada a Auxiliar." },
+        { from: 0, to: 1, text: "Y el pequeño se apila sobre el mediano: siempre el menor encima." },
     ];
 
     const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
@@ -1478,6 +1497,23 @@ $config = [
         });
     }
 
+    // Demuestra un movimiento ILEGAL: sacude el disco superior del origen
+    // y marca en rojo la torre destino, sin alterar el estado del tablero.
+    function animateBlocked(from, to) {
+        return new Promise((resolve) => {
+            const stackFrom = demoBoard.querySelector(`.peg-stack[data-peg="${from}"]`);
+            const pegTo     = demoBoard.querySelector(`.peg[data-peg="${to}"]`);
+            const disk = stackFrom ? stackFrom.lastElementChild : null;
+            if (disk)  disk.classList.add("demo-blocked");
+            if (pegTo) pegTo.classList.add("drop-bad");
+            setTimeout(() => {
+                if (disk)  disk.classList.remove("demo-blocked");
+                if (pegTo) pegTo.classList.remove("drop-bad");
+                resolve();
+            }, 950);
+        });
+    }
+
     async function runDemo() {
         const myToken = ++demoToken;
         demoPegs = [[], [], []];
@@ -1493,9 +1529,13 @@ $config = [
             if (myToken !== demoToken) return;             // Cancelado.
             const mv = DEMO_MOVES[i];
             setDemoCaption(i + 1, DEMO_MOVES.length, mv.text);
-            await sleep(450);
+            await sleep(500);
             if (myToken !== demoToken) return;
-            await animateDemoMove(mv.from, mv.to);
+            if (mv.blocked) {
+                await animateBlocked(mv.from, mv.to);
+            } else {
+                await animateDemoMove(mv.from, mv.to);
+            }
             if (myToken !== demoToken) return;
             await sleep(650);
         }
@@ -1503,8 +1543,8 @@ $config = [
 
         demoBar.style.width = "100%";
         setDemoCaption(0, 0,
-            "Observa el patrón: para mover el disco grande, primero apartas los pequeños. " +
-            "El resto sigue la misma lógica… el desenlace lo completas tú en el juego.");
+            "Ya conoces las reglas: solo el disco superior, uno a la vez, y jamás uno grande " +
+            "sobre uno pequeño. La estrategia y el orden exacto para completar la torre… los descubres tú jugando.");
     }
 
     function stopDemo() { demoToken++; }   // Invalida cualquier animación en curso.
